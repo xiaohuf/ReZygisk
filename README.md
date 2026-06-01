@@ -16,15 +16,15 @@ The Zygisk Next developers are famous and trusted in the Android community, howe
 
 - FOSS (Forever)
 
-## Dependencies
+## 依赖
 
-| Tool            | Description                            |
+| Tool            | 描述                            |
 |-----------------|----------------------------------------|
 | `Android NDK`   | Native Development Kit for Android     |
 
 ### C Dependencies
 
-| Dependency  | Description                   |
+| Dependency  | 描述                   |
 |-------------|-------------------------------|
 | `PLTI`      | Simple PLT Hook for Android   |
 | `CSOLoader` | SOTA Linux custom linker      |
@@ -47,7 +47,7 @@ After choosing the right build, you should flash it using your current root mana
 After flashing, check the installation logs to ensure there are no errors, and if everything is fine, you can reboot your device.
 
 > [!WARNING]
-> Magisk users should disable built-in Zygisk, as it will conflict with ReZygisk. This can be done by going to the `Settings` section of Magisk and disabling the `Zygisk` option.
+> Magisk users should disable built-in Zygisk, as it will conflict with ReZygisk. This can be done by going to the `设置` section of Magisk and disabling the `Zygisk` option.
 
 ### 3. Verify the installation
 
@@ -76,4 +76,3 @@ It is mandatory to follow PerformanC's [Contribution Guidelines](https://github.
 ## License
 
 ReZygisk is licensed under [AGPL 3.0](./LICENSE). You can read more about it on [Open Source Initiative](https://opensource.org/licenses/AGPL-3.0).
- 
