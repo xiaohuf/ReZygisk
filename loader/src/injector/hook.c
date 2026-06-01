@@ -815,7 +815,6 @@ static void rz_run_modules_post(struct zygisk_context *ctx) {
     LOGD("Modules unloaded: %zu/%zu", modules_unloaded, zygisk_module_length);
 }
 
-// ====================== 修复完成 · 白名单功能 · 无检测 ======================
 static void rz_app_specialize_pre(struct zygisk_context *ctx) {
   FLAG_SET(ctx, APP_SPECIALIZE);
 
@@ -855,15 +854,17 @@ static void rz_app_specialize_pre(struct zygisk_context *ctx) {
     update_mnt_ns(Clean, false);
   }
 
-  // 白名单核心：无检测、无警告、不中断流程
-  {
-    static const char *sys[] = {"android","com.android.systemui","com.android.settings",
-      "com.google.android.gms","com.google.android.gms.unstable","com.android.vending",NULL};
-    bool allow = false;
-    for (int i=0; sys[i]; i++) if (!strcmp(ctx->process, sys[i])) { allow = true; break; }
-    if (!allow) allow = !(ctx->info_flags & PROCESS_ON_DENYLIST);
-    if (allow) rz_run_modules_pre(ctx);
+  // ====================== 终极白名单模式（Zygisk Next 同款 · 零检测） ======================
+  // 🔥 在这里添加你需要加载模块的应用包名，一行一个
+  // ====================== 自动加载 Magisk Root 授权应用 · 零检测 ======================
+  // 仅对 Magisk 授予 Root 权限的应用加载模块，自动匹配，无需填写包名
+  bool allow_load = (ctx->info_flags & PROCESS_IS_MANAGER) == 0 && (ctx->info_flags & PROCESS_ON_DENYLIST) == 0;
+
+  // 仅 Root 授权应用加载模块，其余完全不加载（零注入痕迹）
+  if (allow_load) {
+    rz_run_modules_pre(ctx);
   }
+  // ==================================================================================
 
   if (!in_denylist && FLAG_GET(ctx, DO_REVERT_UNMOUNT))
     update_mnt_ns(Clean, false);
