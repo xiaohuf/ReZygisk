@@ -1033,56 +1033,27 @@ static void rz_run_modules_post(struct zygisk_context *ctx) {
 static void rz_app_specialize_pre(struct zygisk_context *ctx) {
   FLAG_SET(ctx, APP_SPECIALIZE);
 
-  /* INFO: Isolated services have different UIDs than the main apps. Because
-              numerous root implementations base themselves in the UID of the
-              app, we need to ensure that the UID sent to ReZygiskd to search
-              is the app's and not the isolated service, or else it will be
-              able to bypass DenyList.
-
-           All apps, and isolated processes, of *third-party* applications will
-             have their app_data_dir set. The system applications might not have
-             one, however it is unlikely they will create an isolated process,
-             and even if so, it should not impact in detections, performance or
-             any area.
-  */
   uid_t uid = *ctx->args.app->uid;
   if (IS_ISOLATED_SERVICE(uid) && ctx->args.app->app_data_dir) {
-    /* INFO: If the app is an isolated service, we use the UID of the
-               app's process data directory, which is the UID of the
-               app itself, which root implementations actually use.
-    */
     const char *data_dir = (*ctx->env)->GetStringUTFChars(ctx->env, *ctx->args.app->app_data_dir, NULL);
     if (!data_dir) {
       LOGE("Failed to get app data directory");
-
       return;
     }
 
     struct stat st;
     if (stat(data_dir, &st) == -1) {
       PLOGE("Failed to stat app data directory [%s]", data_dir);
-
       (*ctx->env)->ReleaseStringUTFChars(ctx->env, *ctx->args.app->app_data_dir, data_dir);
-
       return;
     }
 
     uid = st.st_uid;
     LOGD("Isolated service being related to UID %d, app data dir: %s", uid, data_dir);
-
     (*ctx->env)->ReleaseStringUTFChars(ctx->env, *ctx->args.app->app_data_dir, data_dir);
   }
 
   ctx->info_flags = rezygiskd_get_process_flags(uid, ctx->process);
-  /* INFO: To ensure we are really using a clean mount namespace, we use
-              the first process it as reference for clean mount namespace,
-              before it even does something, so that it will be clean yet
-              with expected mounts.
-
-           To avoid duplication, we will bypass this update_mnt_ns if we
-             are going to execute it later, as the app will be in the
-             denylist.
-  */
   if ((ctx->info_flags & PROCESS_IS_FIRST_STARTED) == PROCESS_IS_FIRST_STARTED &&
       (ctx->info_flags & PROCESS_ON_DENYLIST) == 0 &&
       (ctx->info_flags & PROCESS_IS_MANAGER) == 0
@@ -1092,38 +1063,57 @@ static void rz_app_specialize_pre(struct zygisk_context *ctx) {
 
   if ((ctx->info_flags & PROCESS_IS_MANAGER) == PROCESS_IS_MANAGER) {
     LOGD("Manager process detected. Notifying that Zygisk has been enabled.");
-
-
-    /* INFO: This environment variable is related to Magisk Zygisk/Manager. It
-               it used by Magisk's Zygisk to communicate to Magisk Manager whether
-               Zygisk is working or not, allowing Zygisk modules to both work properly
-               and for the manager to mark Zygisk as enabled.
-
-             However, to enhance capabilities of root managers, it is also set for
-               any other supported manager, so that, if they wish, they can recognize
-               if Zygisk is enabled.
-    */
     setenv("ZYGISK_ENABLED", "1", 1);
   }
 
-  /* INFO: Modules only have two "start off" points from Zygisk, preSpecialize and
-             postSpecialize. In preSpecialize, the process still has privileged
-             permissions, and therefore can execute mount/umount/setns functions.
-             If we update the mount namespace AFTER executing them, any mounts made
-             will be lost, and the process will not have access to them anymore.
-
-           In postSpecialize, while still could have its mounts modified with the
-             assistance of a Zygisk companion, it will already have the mount
-             namespace switched by then, so there won't be issues.
-
-           Knowing this, we update the mns before execution, so that they can still
-             make changes to mounts in DenyListed processes without being reverted.
-  */
   bool in_denylist = (ctx->info_flags & PROCESS_ON_DENYLIST) == PROCESS_ON_DENYLIST;
   if (in_denylist) {
     FLAG_SET(ctx, DO_REVERT_UNMOUNT);
     update_mnt_ns(Clean, false);
   }
+
+  /* ==============================================
+     【白名单核心逻辑：仅授权Root的应用加载模块】
+     ============================================== */
+  // 1. 系统核心白名单（强制放行，防止系统崩溃）
+  const char *sys_whitelist[] = {
+      "android",
+      "com.android.systemui",
+      "com.android.settings",
+      "com.google.android.gms",
+      "com.google.android.gms.unstable",
+      "com.android.vending",
+      NULL
+  };
+
+  bool allow_load = false;
+  // 校验系统白名单
+  for (int i = 0; sys_whitelist[i] != NULL; i++) {
+      if (strcmp(ctx->process, sys_whitelist[i]) == 0) {
+          allow_load = true;
+          break;
+      }
+  }
+
+  // 2. 第三方应用：仅不在Denylist内（已授权Root）才加载模块
+  if (!allow_load) {
+      // 复用ReZygisk原生接口，无外部命令、无额外特征
+      if (!(ctx->info_flags & PROCESS_ON_DENYLIST)) {
+          allow_load = true;
+      }
+  }
+
+  // 核心：仅条件调用模块加载，不中断函数执行流
+  if (allow_load) {
+      rz_run_modules_pre(ctx);
+  } else {
+      LOGV("Skip modules: %s (no root permission)", ctx->process);
+  }
+  /* ============== 白名单逻辑结束 ============== */
+
+  if (!in_denylist && FLAG_GET(ctx, DO_REVERT_UNMOUNT))
+    update_mnt_ns(Clean, false);
+}
 
   /* INFO: Executed after setns to ensure a module can update the mounts of an
               application without worrying about it being overwritten by setns.
